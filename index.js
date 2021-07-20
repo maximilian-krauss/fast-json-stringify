@@ -72,21 +72,7 @@ function build (schema, options) {
   `
 
   code += `
-    ${$pad2Zeros.toString()}
-    ${$asAny.toString()}
-    ${$asString.toString()}
-    ${$asStringNullable.toString()}
-    ${$asStringSmall.toString()}
-    ${$asDatetime.toString()}
-    ${$asDate.toString()}
-    ${$asTime.toString()}
-    ${$asNumber.toString()}
-    ${$asNumberNullable.toString()}
-    ${$asInteger.toString()}
-    ${$asIntegerNullable.toString()}
-    ${$asNull.toString()}
-    ${$asBoolean.toString()}
-    ${$asBooleanNullable.toString()}
+    ${asFunctions}
 
     var isLong = ${isLong ? isLong.toString() : false}
 
@@ -116,19 +102,19 @@ function build (schema, options) {
       code = buildObject(location, code, main)
       break
     case 'string':
-      main = schema.nullable ? $asStringNullable.name : getStringSerializer(schema.format)
+      main = schema.nullable ? '$asStringNullable' : getStringSerializer(schema.format)
       break
     case 'integer':
-      main = schema.nullable ? $asIntegerNullable.name : $asInteger.name
+      main = schema.nullable ? '$asIntegerNullable' : '$asInteger'
       break
     case 'number':
-      main = schema.nullable ? $asNumberNullable.name : $asNumber.name
+      main = schema.nullable ? '$asNumberNullable' : '$asNumber'
       break
     case 'boolean':
-      main = schema.nullable ? $asBooleanNullable.name : $asBoolean.name
+      main = schema.nullable ? '$asBooleanNullable' : '$asBoolean'
       break
     case 'null':
-      main = $asNull.name
+      main = '$asNull'
       break
     case 'array':
       main = '$main'
@@ -233,6 +219,7 @@ function getTestSerializer (format) {
   return stringSerializerMap[format]
 }
 
+const asFunctions = `
 function $pad2Zeros (num) {
   const s = '00' + num
   return s[s.length - 2] + s[s.length - 1]
@@ -254,9 +241,8 @@ function $asInteger (i) {
   } else if (Number.isInteger(i)) {
     return $asNumber(i)
   } else {
-    // if the output is NaN the type is coerced to int 0
     /* eslint no-undef: "off" */
-    return $asNumber(parseInteger(i) || 0)
+    return $asNumber(parseInteger(i))
   }
 }
 
@@ -292,7 +278,7 @@ function $asDatetime (date, skipQuotes) {
   } else if (date && typeof date.toISOString === 'function') {
     return quotes + date.toISOString() + quotes
   } else {
-    return $asString(date)
+    return $asString(date, skipQuotes)
   }
 }
 
@@ -306,7 +292,7 @@ function $asDate (date, skipQuotes) {
   } else if (date && typeof date.format === 'function') {
     return quotes + date.format('YYYY-MM-DD') + quotes
   } else {
-    return $asString(date)
+    return $asString(date, skipQuotes)
   }
 }
 
@@ -320,19 +306,25 @@ function $asTime (date, skipQuotes) {
   } else if (date && typeof date.format === 'function') {
     return quotes + date.format('HH:mm:ss') + quotes
   } else {
-    return $asString(date)
+    return $asString(date, skipQuotes)
   }
 }
 
-function $asString (str) {
+function $asString (str, skipQuotes) {
+  const quotes = skipQuotes === true ? '' : '"'
   if (str instanceof Date) {
-    return '"' + str.toISOString() + '"'
+    return quotes + str.toISOString() + quotes
   } else if (str === null) {
-    return '""'
+    return quotes + quotes
   } else if (str instanceof RegExp) {
     str = str.source
   } else if (typeof str !== 'string') {
     str = str.toString()
+  }
+  // If we skipQuotes it means that we are using it as test
+  // no need to test the string length for the render
+  if (skipQuotes) {
+    return str
   }
 
   if (str.length < 42) {
@@ -367,7 +359,7 @@ function $asStringSmall (str) {
       surrogateFound = true
     }
     if (point === 34 || point === 92) {
-      result += str.slice(last, i) + '\\'
+      result += str.slice(last, i) + '\\\\'
       last = i
       found = true
     }
@@ -380,6 +372,7 @@ function $asStringSmall (str) {
   }
   return ((point < 32) || (surrogateFound === true)) ? JSON.stringify(str) : '"' + result + '"'
 }
+`
 
 function addPatternProperties (location) {
   const schema = location.schema
@@ -746,7 +739,7 @@ function buildCode (location, code, laterCode, name) {
         `
       } else {
         code += `
-            var t = Number(obj[${sanitized}])
+            var t = $asInteger(obj[${sanitized}])
             if (!isNaN(t)) {
               ${addComma}
               json += ${asString} + ':' + t
@@ -923,7 +916,7 @@ function buildObject (location, code, name) {
   if (schema.nullable) {
     code += `
       if(input === null) {
-        return '${$asNull()}';
+        return 'null';
       }
   `
   }
@@ -962,7 +955,7 @@ function buildArray (location, code, name, key = null) {
   if (schema.nullable) {
     code += `
       if(obj === null) {
-        return '${$asNull()}';
+        return 'null';
       }
     `
   }
